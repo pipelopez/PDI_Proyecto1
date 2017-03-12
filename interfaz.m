@@ -64,8 +64,8 @@ guidata(hObject, handles);
 
 
 vid=videoinput('winvideo',1,'RGB24_640x480');
-%vid=videoinput('winvideo',2,'MJPG_1280x720'); %variables para capturar video desde la c�mara
-vid.FramesPerTrigger=1; %n�mero de frames
+%vid=videoinput('winvideo',2,'MJPG_1280x720'); %variables para capturar video desde la cámara
+vid.FramesPerTrigger=1; %número de frames
 vid.ReturnedColorspace='rgb'; %tipo de color del video
 triggerconfig(vid,'manual'); 
 vidRes=get(vid,'VideoResolution');
@@ -75,12 +75,12 @@ nBands = get(vid, 'NumberOfBands');
 hImage = image(zeros(imHeight, imWidth, nBands), 'parent', handles.original);
 preview(vid, hImage);
 
-modulo_b = Bluetooth('HC-05',1);
-fopen(modulo_b);
+modulo_b = Bluetooth('HC-05',1); %se crea la conexión  con el modulo bluetooth del carro arduino
+fopen(modulo_b);%se abre la conexión con el modulo bluetooth
 
-handles.bluetooth=modulo_b;
+handles.bluetooth=modulo_b;%se crea la variable con la cual se podra acceder a la conexión con el bluetooth, en toda la interfaz
 
-handles.img=vid;
+handles.img=vid;%se crea la variable con la cual se podra acceder al video, en toda la interfaz
 guidata(hObject,handles);
 
 % --- Outputs from this function are returned to the command line.
@@ -100,24 +100,29 @@ function empezar_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-%I = imread('FIGURAS GEOMETRICAS.jpg');
+%I = imread('FIGURAS GEOMETRICAS.jpg'); % Se utiliza cuando se desea probar el programa con una imagen especifica
+
+%se obtiene los valores tanto de la camra y de la conexión bluetooth
 vid=handles.img;
-
-
 bluetooth = handles.bluetooth;
-I=getsnapshot(vid);
-figure(1);
-imshow(I)
-hsv = rgb2hsv(I);
 
-h = hsv(:,:,1);
 
+I=getsnapshot(vid);%se obtiene la imagen que se transmite en video en el momento que se llama dicha funcion
+
+hsv = rgb2hsv(I);% la imagen obtenida se transforma a formato HSV
+
+h = hsv(:,:,1);%Recuperamos solo la capa H de la imagen, en la cual se tiene la imagen sin importar el brillo y la  opacidad, 
+
+% obtiene los dos capos elegidos en al interfaz, el color y la forma
 contents = get(handles.color,'String'); 
 v = contents{get(handles.color,'Value')};
 
+%al saber el color que deseamos buscar, se busca en al imagen lo q se encuentre entre lso valores que representan a dicho color
+%en la capa H y se hacen balnco y el restro se deja negro, de esta forma creamos la mascara en la cual obtendremos solo las cosas
+%con el color deseado
 if strcmp(v,'Rojo')
     h(h<0.001)=0;
-    h(h>0.041)=0;%lo que no est� entre estos rangos se vuelve ceros
+    h(h>0.041)=0;
     h(h>0)=1;
 elseif strcmp(v,'Verde')
     h(h<0.181)=0;
@@ -129,9 +134,12 @@ elseif strcmp(v,'Azul')
     h(h>0.1)=1;
 end
 
-h=imfill(h,'holes');
+h=imfill(h,'holes');% se rellenan los huevcos que hayan quedado en las figuras, esto se hace puesto que dicha figura 
+%puede tener pixeles que no entren al campo de color elegido y esto dificulta el reconocimiento
  
-
+%Con lo siguiente lo que hacemos es erocionar la figura una cantidad de veces dependiendo del color
+%puesto que el color verde elegido pro lo general tenia presencia de mucho mas ruido que las demas, lo que se hace al
+% erocionar una imagen es intentar elimiar todos los pixeles que sonn ruido para nuestra imagen
 ee = strel('square',3);
 b=imdilate(h,ee);
 cantidad = 6;
@@ -143,23 +151,22 @@ for i=1:cantidad
 end
 
 
-%get outlines of each object
+%se obtiene unos datos necesarios de cada figura encontrada
 [B,L,N] = bwboundaries(b);
 
 
-%get stats
+%obtiene las estadisticas, de cada imagen apartir de sus datos
 stats=  regionprops(L, 'Centroid', 'Area', 'Perimeter');
 Centroid = cat(1, stats.Centroid);
 Perimeter = cat(1,stats.Perimeter);
 Area = cat(1,stats.Area);
-CircleMetric = (Perimeter.^2)./(4*pi*Area);  %circularity metric
+CircleMetric = (Perimeter.^2)./(4*pi*Area);  
 
 SquareMetric = NaN(N,1);
 TriangleMetric = NaN(N,1);
 
 encontro = false;
 for k=1:N,
-   %display metric values and which shape next to object
    cellsz = cellfun(@size,B(k),'uni',false);
    if (Area(k)>100 && cellsz{:}(1)>100)
        encontro = true;
@@ -167,29 +174,28 @@ for k=1:N,
 end
 
 if encontro
-    %for each boundary, fit to bounding box, and calculate some parameters
+    %por cada figura encontrada calcula una serie de parametros, necesarios para identificar cada figura
     for k=1:N,
        boundary = B{k};
-       [rx,ry,boxArea] = minboundrect( boundary(:,2), boundary(:,1));  %x and y are flipped in images
-       %get width and height of bounding box
+       [rx,ry,boxArea] = minboundrect( boundary(:,2), boundary(:,1));  
        width = sqrt( sum( (rx(2)-rx(1)).^2 + (ry(2)-ry(1)).^2));
        height = sqrt( sum( (rx(2)-rx(3)).^2+ (ry(2)-ry(3)).^2));
        aspectRatio = width/height;
        if aspectRatio > 1,  
-           aspectRatio = height/width;  %make aspect ratio less than unity
+           aspectRatio = height/width; 
        end
-       SquareMetric(k) = aspectRatio;    %aspect ratio of box sides
-       TriangleMetric(k) = Area(k)/boxArea;  %filled area vs box area
+       SquareMetric(k) = aspectRatio;    
+       TriangleMetric(k) = Area(k)/boxArea;  
     end
 
-    %define some thresholds for each metric
-    %do in order of circle, triangle, square, rectangle to avoid assigning the
-    %same shape to multiple objects
+    %luego de calcular las metricas de cada figura, se analiza que tan "probable", es que dicha figura tenga dicha forma
+    %se deja al final el rectangulo, puesto que es nuestra figura por defecto
     isCircle =   (CircleMetric < 1.4);
     isTriangle = ~isCircle & (TriangleMetric < 0.6);
     isSquare =   ~isCircle & ~isTriangle & (SquareMetric > 0.9);
-    isRectangle= ~isCircle & ~isTriangle & ~isSquare;  %rectangle isn't any of these
-    %assign shape to each object
+    isRectangle= ~isCircle & ~isTriangle & ~isSquare; 
+    
+    %Luego de saber que forma tiene cada figura se le asigna dicha etiqueta
     whichShape = cell(N,1);  
     whichShape(isCircle) = {'Circulo'};
     whichShape(isTriangle) = {'Triangulo'};
@@ -200,6 +206,10 @@ if encontro
     f = contents1{get(handles.forma,'Value')};
     encontro = false;
     mayor=0;
+    
+    %Ahora se analiza todas las figuras encontradas de dicho color con dicha forma, y con esto
+    %que tenga una area mayor a 100, puesto que si es inferior la catalogamos como ruido de la imagen,
+    %ademas se busca cual tiene la mayor area y esta sera la figura que nuestro progarma identificara ya  al cual se dirigira
     for k=1:N,
        cellsz = cellfun(@size,B(k),'uni',false);
        if (strcmp(whichShape{k},f) && Area(k)>100)
@@ -210,13 +220,19 @@ if encontro
            end
        end
     end
-    %now label with results
+    
+    
+    
     RGB = label2rgb(L);
+    %Ahora se aanliza si si se encontro alguna figura de dicho color, en caso contrario se muestra
+    %una imagen en blanco y se muestra un texto informadolo
     if ~encontro
         RGB(RGB<255)=255;
         S = 'No se encontro ningun elemento con dicho color, por favor verifique tanto el color como la forma';
         set(handles.text3,'string',char(S))
     else
+    %Si se encotnro alguna figura con al forma y el color solicitado, se busca donde se encuentra su centroide en el eje x
+    % y se pregunta pro lo umbrales definidos para cada posicion de las figuras, con esto sabremos en que lugar se encuentra la figura
            a = num2str(Centroid(k1,1));
            b = num2str(Centroid(k1,2));
            angulo = 0;
@@ -232,7 +248,8 @@ if encontro
                    end
                end
            end
-           
+           %por ultimo se le envia pro bluetooth al arduino el angulo, osea la posicion a la cual se debe de mover,
+           %se muestra el texto informado que fue encontrada y las corrdenadas tanto en x como en y de su centroide
            fwrite(bluetooth, angulo);
            S = ['La coordenada x es: ' a ' y la coordenada y es: ' b ];
            set(handles.text3,'string',char(S))
@@ -243,7 +260,7 @@ else
     S = 'No se encontro ningun elemento';
     set(handles.text3,'string',char(S))
 end
-
+%Se muetsr la figura encontrada
 axes(handles.resultado);
 imshow(RGB); hold on;impixelinfo;
 
