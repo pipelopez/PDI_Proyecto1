@@ -249,8 +249,8 @@ if encontro
                    end
                end
            end
-           %por ultimo se le envia por bluetooth al arduino el angulo, osea la posicion a la cual se debe de mover,
-           %se muestra el texto informando que fue encontrada y las corrdenadas tanto en x como en y de su centroide
+           %por ultimo se le envia pro bluetooth al arduino el angulo, osea la posicion a la cual se debe de mover,
+           %se muestra el texto informado que fue encontrada y las corrdenadas tanto en x como en y de su centroide
            fwrite(bluetooth, angulo);
            S = ['La coordenada x es: ' a ' y la coordenada y es: ' b ];
            set(handles.text3,'string',char(S))
